@@ -24,6 +24,8 @@ class Todo {
   String description;
   bool isCompleted;
   DateTime createdAt;
+  DateTime? dueDate;
+  DateTime? dueTime;
 
   Todo({
     required this.id,
@@ -31,6 +33,8 @@ class Todo {
     this.description = '',
     this.isCompleted = false,
     required this.createdAt,
+    this.dueDate,
+    this.dueTime,
   });
 }
 
@@ -43,33 +47,106 @@ class _TodoHomePageState extends State<TodoHomePage> {
   List<Todo> todos = [];
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
+  DateTime? _selectedDueDate;
+  TimeOfDay? _selectedDueTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSampleData();
+  }
+
+  void _loadSampleData() {
+    // Add some sample todos for demonstration
+    todos = [
+      Todo(
+        id: '1',
+        title: 'Buy groceries',
+        description: 'Milk, bread, eggs, and fruits',
+        createdAt: DateTime.now().subtract(Duration(days: 1)),
+        dueDate: DateTime.now().add(Duration(days: 1)),
+      ),
+      Todo(
+        id: '2',
+        title: 'Complete Flutter project',
+        description: 'Finish the todo app implementation',
+        createdAt: DateTime.now().subtract(Duration(hours: 2)),
+      ),
+      Todo(
+        id: '3',
+        title: 'Call dentist',
+        description: 'Schedule appointment for next week',
+        createdAt: DateTime.now().subtract(Duration(hours: 3)),
+        isCompleted: true,
+      ),
+    ];
+    _sortTodos();
+  }
+
+  void _sortTodos() {
+    setState(() {
+      todos.sort((a, b) {
+        // First sort by completion status
+        if (a.isCompleted != b.isCompleted) {
+          return a.isCompleted ? 1 : -1;
+        }
+        // Then by due date
+        if (a.dueDate != null && b.dueDate != null) {
+          return a.dueDate!.compareTo(b.dueDate!);
+        }
+        if (a.dueDate != null) return -1;
+        if (b.dueDate != null) return 1;
+        return b.createdAt.compareTo(a.createdAt);
+      });
+    });
+  }
 
   void _addTodo() {
     if (_titleController.text.trim().isEmpty) return;
 
-    setState(() {
-      todos.add(
-        Todo(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim(),
-          createdAt: DateTime.now(),
-        ),
+    DateTime? combinedDateTime;
+    if (_selectedDueDate != null && _selectedDueTime != null) {
+      combinedDateTime = DateTime(
+        _selectedDueDate!.year,
+        _selectedDueDate!.month,
+        _selectedDueDate!.day,
+        _selectedDueTime!.hour,
+        _selectedDueTime!.minute,
       );
-    });
+    }
 
+    final todo = Todo(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: _titleController.text.trim(),
+      description: _descriptionController.text.trim(),
+      createdAt: DateTime.now(),
+      dueDate: _selectedDueDate,
+      dueTime: combinedDateTime,
+    );
+
+    setState(() {
+      todos.add(todo);
+    });
+    _clearForm();
+    Navigator.of(context).pop();
+    _sortTodos();
+  }
+
+  void _clearForm() {
     _titleController.clear();
     _descriptionController.clear();
-    Navigator.of(context).pop();
+    _selectedDueDate = null;
+    _selectedDueTime = null;
   }
 
   void _toggleTodo(String id) {
-    setState(() {
-      final index = todos.indexWhere((todo) => todo.id == id);
-      if (index != -1) {
+    final index = todos.indexWhere((todo) => todo.id == id);
+    if (index != -1) {
+      setState(() {
         todos[index].isCompleted = !todos[index].isCompleted;
-      }
-    });
+      });
+      _sortTodos();
+    }
   }
 
   void _deleteTodo(String id) {
@@ -81,112 +158,214 @@ class _TodoHomePageState extends State<TodoHomePage> {
   void _editTodo(Todo todo) {
     _titleController.text = todo.title;
     _descriptionController.text = todo.description;
+    _selectedDueDate = todo.dueDate;
+    _selectedDueTime = todo.dueTime != null
+        ? TimeOfDay.fromDateTime(todo.dueTime!)
+        : null;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit Todo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
+      builder: (context) => _buildTodoDialog(
+        title: 'Edit Todo',
+        onSave: () {
+          if (_titleController.text.trim().isNotEmpty) {
+            DateTime? combinedDateTime;
+            if (_selectedDueDate != null && _selectedDueTime != null) {
+              combinedDateTime = DateTime(
+                _selectedDueDate!.year,
+                _selectedDueDate!.month,
+                _selectedDueDate!.day,
+                _selectedDueTime!.hour,
+                _selectedDueTime!.minute,
+              );
+            }
+
+            setState(() {
+              todo.title = _titleController.text.trim();
+              todo.description = _descriptionController.text.trim();
+              todo.dueDate = _selectedDueDate;
+              todo.dueTime = combinedDateTime;
+            });
+
+            _clearForm();
+            Navigator.of(context).pop();
+            _sortTodos();
+          }
+        },
+      ),
+    );
+  }
+
+  void _showAddTodoDialog() {
+    _clearForm();
+    showDialog(
+      context: context,
+      builder: (context) =>
+          _buildTodoDialog(title: 'Add New Todo', onSave: _addTodo),
+    );
+  }
+
+  Widget _buildTodoDialog({
+    required String title,
+    required VoidCallback onSave,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _titleController,
+                decoration: InputDecoration(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 1,
+                autofocus: true,
               ),
-              maxLines: 1,
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: _descriptionController,
-              decoration: InputDecoration(
-                labelText: 'Description (optional)',
-                border: OutlineInputBorder(),
+              SizedBox(height: 16),
+              TextField(
+                controller: _descriptionController,
+                decoration: InputDecoration(
+                  labelText: 'Description (optional)',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
               ),
-              maxLines: 3,
-            ),
-          ],
+              SizedBox(height: 16),
+              // Due date selection
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDueDate ?? DateTime.now(),
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(Duration(days: 365)),
+                        );
+                        if (date != null) {
+                          setDialogState(() => _selectedDueDate = date);
+                        }
+                      },
+                      icon: Icon(Icons.calendar_today),
+                      label: Text(
+                        _selectedDueDate != null
+                            ? _formatDateOnly(_selectedDueDate!)
+                            : 'Select Date',
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final time = await showTimePicker(
+                          context: context,
+                          initialTime: _selectedDueTime ?? TimeOfDay.now(),
+                        );
+                        if (time != null) {
+                          setDialogState(() => _selectedDueTime = time);
+                        }
+                      },
+                      icon: Icon(Icons.access_time),
+                      label: Text(
+                        _selectedDueTime != null
+                            ? _selectedDueTime!.format(context)
+                            : 'Select Time',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_selectedDueDate != null || _selectedDueTime != null)
+                Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: TextButton(
+                    onPressed: () {
+                      setDialogState(() {
+                        _selectedDueDate = null;
+                        _selectedDueTime = null;
+                      });
+                    },
+                    child: Text('Clear Date & Time'),
+                  ),
+                ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () {
-              _titleController.clear();
-              _descriptionController.clear();
+              _clearForm();
               Navigator.of(context).pop();
             },
             child: Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              if (_titleController.text.trim().isNotEmpty) {
-                setState(() {
-                  final index = todos.indexWhere((t) => t.id == todo.id);
-                  if (index != -1) {
-                    todos[index].title = _titleController.text.trim();
-                    todos[index].description = _descriptionController.text
-                        .trim();
-                  }
-                });
-                _titleController.clear();
-                _descriptionController.clear();
-                Navigator.of(context).pop();
-              }
-            },
-            child: Text('Update'),
+            onPressed: onSave,
+            child: Text(title.contains('Edit') ? 'Update' : 'Add'),
           ),
         ],
       ),
     );
   }
 
-  void _showAddTodoDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add New Todo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 1,
-              autofocus: true,
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: _descriptionController,
-              decoration: InputDecoration(
-                labelText: 'Description (optional)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _titleController.clear();
-              _descriptionController.clear();
-              Navigator.of(context).pop();
-            },
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(onPressed: _addTodo, child: Text('Add')),
-        ],
-      ),
-    );
+  String _formatDateOnly(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day.toString().padLeft(2, '0')}, ${date.year}';
+  }
+
+  String _formatTime(DateTime time) {
+    final hour = time.hour == 0
+        ? 12
+        : time.hour > 12
+        ? time.hour - 12
+        : time.hour;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
+  String _formatDateTime(DateTime? date, DateTime? time) {
+    if (date == null) return '';
+
+    String result = _formatDateOnly(date);
+    if (time != null) {
+      result += ' at ${_formatTime(time)}';
+    }
+    return result;
+  }
+
+  bool _isOverdue(DateTime? dueTime) {
+    if (dueTime == null) return false;
+    return DateTime.now().isAfter(dueTime);
   }
 
   @override
   Widget build(BuildContext context) {
     final completedTodos = todos.where((todo) => todo.isCompleted).length;
     final totalTodos = todos.length;
+    final overdueTodos = todos
+        .where((todo) => !todo.isCompleted && _isOverdue(todo.dueTime))
+        .length;
 
     return Scaffold(
       appBar: AppBar(
@@ -194,6 +373,21 @@ class _TodoHomePageState extends State<TodoHomePage> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          if (overdueTodos > 0)
+            Container(
+              margin: EdgeInsets.only(right: 16),
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$overdueTodos overdue',
+                style: TextStyle(fontSize: 12, color: Colors.white),
+              ),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -202,23 +396,40 @@ class _TodoHomePageState extends State<TodoHomePage> {
             Container(
               padding: EdgeInsets.all(16),
               color: Colors.blue.shade50,
-              child: Row(
+              child: Column(
                 children: [
-                  Expanded(
-                    child: LinearProgressIndicator(
-                      value: completedTodos / totalTodos,
-                      backgroundColor: Colors.grey.shade300,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: completedTodos / totalTodos,
+                          backgroundColor: Colors.grey.shade300,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.green,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 16),
+                      Text(
+                        '$completedTodos / $totalTodos completed',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 16),
-                  Text(
-                    '$completedTodos / $totalTodos completed',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade700,
+                  if (overdueTodos > 0)
+                    Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        '$overdueTodos overdue tasks',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -255,8 +466,13 @@ class _TodoHomePageState extends State<TodoHomePage> {
                     itemCount: todos.length,
                     itemBuilder: (context, index) {
                       final todo = todos[index];
+                      final isOverdue = _isOverdue(todo.dueTime);
+
                       return Card(
                         margin: EdgeInsets.symmetric(vertical: 4),
+                        color: isOverdue && !todo.isCompleted
+                            ? Colors.red.shade50
+                            : null,
                         child: ListTile(
                           leading: Checkbox(
                             value: todo.isCompleted,
@@ -274,8 +490,11 @@ class _TodoHomePageState extends State<TodoHomePage> {
                                   : null,
                             ),
                           ),
-                          subtitle: todo.description.isNotEmpty
-                              ? Text(
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (todo.description.isNotEmpty)
+                                Text(
                                   todo.description,
                                   style: TextStyle(
                                     decoration: todo.isCompleted
@@ -285,8 +504,29 @@ class _TodoHomePageState extends State<TodoHomePage> {
                                         ? Colors.grey.shade500
                                         : Colors.grey.shade700,
                                   ),
-                                )
-                              : null,
+                                ),
+                              if (todo.dueDate != null || todo.dueTime != null)
+                                Text(
+                                  _formatDateTime(todo.dueDate, todo.dueTime),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isOverdue && !todo.isCompleted
+                                        ? Colors.red
+                                        : Colors.grey.shade600,
+                                    fontWeight: isOverdue && !todo.isCompleted
+                                        ? FontWeight.bold
+                                        : null,
+                                  ),
+                                ),
+                              Text(
+                                'Created: ${_formatDateOnly(todo.createdAt)}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
                           trailing: PopupMenuButton<String>(
                             onSelected: (value) {
                               if (value == 'edit') {
@@ -347,4 +587,3 @@ class _TodoHomePageState extends State<TodoHomePage> {
     _descriptionController.dispose();
     super.dispose();
   }
-}
